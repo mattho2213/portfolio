@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="投資組合"/>
+<meta name="theme-color" content="#060e1a"/>
+<title>投資組合 Portfolio</title>
+<link rel="manifest" href="manifest.json"/>
+<link rel="apple-touch-icon" href="icon.png"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{background:#060e1a;font-family:'DM Sans',sans-serif;color:#e8f0fe;min-height:100vh;overflow-x:hidden;}
+input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;}
+input{-webkit-appearance:none;border-radius:10px;}
+::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-track{background:transparent;}::-webkit-scrollbar-thumb{background:#1e3050;border-radius:2px;}
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.card{animation:fadeIn .3s ease both;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+// ── API key prompt storage ───────────────────────────────────────────────────
+const STORAGE_KEY = "portfolio_data_v2";
+const API_KEY_STORAGE = "anthropic_api_key";
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+const { useState, useEffect, useCallback, useRef } = React;
+const { AreaChart, Area, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } = Recharts;
+
+const fmtN   = (v, d=0) => new Intl.NumberFormat("zh-TW",{maximumFractionDigits:d}).format(v);
+const fmtPct = (v) => `${v>=0?"+":""}${v.toFixed(2)}%`;
+const pc     = (v) => v>=0?"#00e5a0":"#ff5e5e";
+const USD_TWD = 32.5;
+const PALETTE = ["#0070f3","#00c2ff","#00e5a0","#f5c842","#ff7b54","#c77dff","#ff5e5e","#38bdf8","#fb923c","#a3e635","#e879f9"];
+const MLabs  = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"];
+function last12(){const now=new Date();return Array.from({length:12},(_,i)=>{const d=new Date(now.getFullYear(),now.getMonth()-11+i,1);return MLabs[d.getMonth()];});}
+
+// ── DCA ──────────────────────────────────────────────────────────────────────
+const DCA_DEF = {
+  "0050":   {rows:[{days:[10,20,30],amount:2000}]},
+  "2330":   {rows:[{days:[10,25],  amount:3000}]},
+  "2891":   {rows:[{days:[10],     amount:1000}]},
+  "00981A": {rows:[{days:[10],     amount:2000}]},
+  "VOO":    {rows:[{days:[13,23],  amount:5000}]},
+};
+function buildDCA(ticker){const d=DCA_DEF[ticker];if(!d)return null;return{...d,monthlyTotal:d.rows.reduce((s,r)=>s+r.days.length*r.amount,0)};}
+
+// ── mock history ─────────────────────────────────────────────────────────────
+function genHistory(cur,avg){const n=12,start=avg*(0.9+Math.random()*0.1);return Array.from({length:n},(_,i)=>{const t=i/(n-1),base=start+(cur-start)*Math.pow(t,1.3);return i===n-1?cur:+(base*(1+(Math.random()*0.06-0.03))).toFixed(2);});}
+
+// ── seed data ────────────────────────────────────────────────────────────────
+const SEED = [
+  {id:1,  ticker:"0050",   name:"元大台灣50",       cur:"TWD", qty:3027,  avg:72.07,   price:80.75,  transactions:[]},
+  {id:2,  ticker:"00955",  name:"中信日本商社",     cur:"TWD", qty:13000, avg:12.16,   price:16.04,  transactions:[]},
+  {id:3,  ticker:"00981A", name:"主動統一台股增長",  cur:"TWD", qty:9013,  avg:17.37,   price:23.13,  transactions:[]},
+  {id:4,  ticker:"2308",   name:"台達電",           cur:"TWD", qty:60,    avg:1716.2,  price:1735,   transactions:[]},
+  {id:5,  ticker:"2330",   name:"台積電",           cur:"TWD", qty:222,   avg:1566.81, price:2000,   transactions:[]},
+  {id:6,  ticker:"2891",   name:"中信金",           cur:"TWD", qty:2019,  avg:46.45,   price:54,     transactions:[]},
+  {id:7,  ticker:"3105",   name:"穩懋",             cur:"TWD", qty:60,    avg:450.5,   price:464,    transactions:[]},
+  {id:8,  ticker:"GOOGL",  name:"谷歌 Alphabet",    cur:"USD", qty:15,    avg:267.736, price:318.49, transactions:[]},
+  {id:9,  ticker:"KO",     name:"可口可樂",         cur:"USD", qty:20,    avg:77.74,   price:78.18,  transactions:[]},
+  {id:10, ticker:"ONDS",   name:"Ondas Inc",        cur:"USD", qty:200,   avg:4.83,    price:9.14,   transactions:[]},
+  {id:11, ticker:"VOO",    name:"Vanguard S&P500",  cur:"USD", qty:2,     avg:596.845, price:625.02, transactions:[]},
+];
+
+function initStocks(){
+  try{const saved=localStorage.getItem(STORAGE_KEY);if(saved)return JSON.parse(saved);}catch(e){}
+  return SEED.map((s,i)=>({...s,color:PALETTE[i%PALETTE.length],history:genHistory(s.price,s.avg),dca:buildDCA(s.ticker),priceLoading:false}));
+}
+
+// ── stats ────────────────────────────────────────────────────────────────────
+function calcStats(s){
+  let qty=s.qty,costBasis=s.avg*s.qty;
+  for(const t of s.transactions){if(t.type==="buy"){costBasis+=t.price*t.qty;qty+=t.qty;}else{costBasis-=(costBasis/qty)*t.qty;qty-=t.qty;}}
+  const avgCost=qty>0?costBasis/qty:0,market=s.price*qty,pnl=market-costBasis,pnlPct=costBasis>0?(pnl/costBasis)*100:0;
+  return{qty,avgCost,costBasis,market,pnl,pnlPct,mktTWD:s.cur==="USD"?market*USD_TWD:market,costTWD:s.cur==="USD"?costBasis*USD_TWD:costBasis};
+}
+
+// ── live price via Anthropic API ─────────────────────────────────────────────
+async function fetchLivePrice(ticker, cur, apiKey){
+  if(!apiKey) return null;
+  const query = cur==="USD"
+    ? `What is the current stock price of ${ticker} in USD? Reply ONLY with JSON: {"price": 123.45}`
+    : `台股${ticker}目前股價？只回覆JSON: {"price": 123.45}`;
+  try{
+    const res = await fetch("https://api.anthropic.com/v1/messages",{
+      method:"POST",
+      headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+      body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:200,
+        tools:[{type:"web_search_20250305",name:"web_search"}],
+        messages:[{role:"user",content:query}]})
+    });
+    const data=await res.json();
+    const text=(data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("");
+    const m=text.match(/\{[^}]*"price"\s*:\s*([\d.]+)/);
+    if(m) return parseFloat(m[1]);
+  }catch(e){console.error("fetchPrice",e);}
+  return null;
+}
+
+// ── Badge ────────────────────────────────────────────────────────────────────
+function Badge({v}){
+  return React.createElement("span",{style:{padding:"2px 9px",borderRadius:20,fontSize:12,fontWeight:700,
+    background:v>=0?"rgba(0,229,160,.14)":"rgba(255,94,94,.14)",color:pc(v),
+    border:`1px solid ${v>=0?"#00e5a040":"#ff5e5e40"}`}},fmtPct(v));
+}
+
+// ── Sparkline ────────────────────────────────────────────────────────────────
+function Spark({history,color,avg}){
+  const data=history.map((v,i)=>({m:last12()[i],v}));
+  const gid="g"+color.replace("#","");
+  return React.createElement(ResponsiveContainer,{width:"100%",height:52},
+    React.createElement(AreaChart,{data,margin:{top:2,right:0,left:0,bottom:0}},
+      React.createElement("defs",null,React.createElement("linearGradient",{id:gid,x1:"0",y1:"0",x2:"0",y2:"1"},
+        React.createElement("stop",{offset:"10%",stopColor:color,stopOpacity:0.35}),
+        React.createElement("stop",{offset:"90%",stopColor:color,stopOpacity:0}))),
+      React.createElement(Area,{type:"monotone",dataKey:"v",stroke:color,strokeWidth:1.5,fill:`url(#${gid})`,dot:false}),
+      React.createElement(ReferenceLine,{y:avg,stroke:"#ffffff18",strokeDasharray:"3 3"})));
+}
+
+// ── Big chart ────────────────────────────────────────────────────────────────
+function BigChart({stock,avgCost}){
+  const labs=last12();
+  const data=stock.history.map((v,i)=>({m:labs[i],price:v,cost:+avgCost.toFixed(stock.cur==="USD"?3:2)}));
+  const fp=v=>stock.cur==="USD"?`$${v.toFixed(2)}`:fmtN(v,2);
+  function CT({active,payload,label}){
+    if(!active||!payload||!payload.length) return null;
+    return React.createElement("div",{style:{background:"#0d1b2e",border:"1px solid #1e3050",borderRadius:10,padding:"8px 14px",fontSize:12}},
+      React.createElement("div",{style:{color:"#7a8fa6",marginBottom:4}},label),
+      React.createElement("div",{style:{color:stock.color,fontWeight:700}},`現價 ${fp(payload[0]&&payload[0].value||0)}`),
+      React.createElement("div",{style:{color:"#ffffff60"}},`均價 ${fp(payload[1]&&payload[1].value||0)}`));
+  }
+  return React.createElement(ResponsiveContainer,{width:"100%",height:160},
+    React.createElement(LineChart,{data,margin:{top:8,right:4,left:-18,bottom:0}},
+      React.createElement(XAxis,{dataKey:"m",tick:{fill:"#7a8fa6",fontSize:10},axisLine:false,tickLine:false}),
+      React.createElement(YAxis,{tick:{fill:"#7a8fa6",fontSize:10},axisLine:false,tickLine:false}),
+      React.createElement(Tooltip,{content:React.createElement(CT,null)}),
+      React.createElement(Line,{type:"monotone",dataKey:"price",stroke:stock.color,strokeWidth:2,dot:false}),
+      React.createElement(Line,{type:"monotone",dataKey:"cost",stroke:"#ffffff30",strokeWidth:1.2,strokeDasharray:"4 3",dot:false})));
+}
+
+// ── API Key Modal ────────────────────────────────────────────────────────────
+function ApiKeyModal({onSave}){
+  const [key,setKey]=useState("");
+  return React.createElement("div",{style:{position:"fixed",inset:0,background:"rgba(5,12,22,.95)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:500,padding:"0 20px"}},
+    React.createElement("div",{style:{background:"#0d1b2e",border:"1px solid #1e3050",borderRadius:22,padding:"32px 24px",width:"100%",maxWidth:360}},
+      React.createElement("div",{style:{fontSize:32,textAlign:"center",marginBottom:12}},"🔑"),
+      React.createElement("div",{style:{fontFamily:"'DM Serif Display',serif",fontSize:22,color:"#e8f0fe",textAlign:"center",marginBottom:8}},"設定 API Key"),
+      React.createElement("div",{style:{color:"#7a8fa6",fontSize:13,textAlign:"center",marginBottom:24,lineHeight:1.6}},
+        "需要 Anthropic API Key 才能自動抓取即時股價。",React.createElement("br"),
+        React.createElement("a",{href:"https://console.anthropic.com",target:"_blank",style:{color:"#0070f3"}},"點此取得 API Key")),
+      React.createElement("div",{style:{color:"#7a8fa6",fontSize:12,marginBottom:6}},"API Key"),
+      React.createElement("input",{type:"password",value:key,onChange:e=>setKey(e.target.value),placeholder:"sk-ant-...",
+        style:{width:"100%",padding:"11px 14px",borderRadius:10,background:"#0a1525",border:"1px solid #1e3050",color:"#e8f0fe",fontSize:14,outline:"none",marginBottom:8}}),
+      React.createElement("div",{style:{color:"#3a5070",fontSize:11,marginBottom:20}},"🔒 只儲存在你的裝置，不會傳送到其他地方"),
+      React.createElement("div",{style:{display:"flex",gap:10}},
+        React.createElement("button",{onClick:()=>onSave(""),style:{flex:1,padding:"10px 0",borderRadius:10,border:"1px solid #1e3050",background:"transparent",color:"#7a8fa6",cursor:"pointer",fontWeight:600,fontSize:13}},"略過"),
+        React.createElement("button",{onClick:()=>{if(key.trim())onSave(key.trim());},style:{flex:2,padding:"10px 0",borderRadius:10,border:"none",background:"linear-gradient(135deg,#0070f3,#00c2ff)",color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}},"儲存並繼續"))));
+}
+
+// ── Add Trade Modal ──────────────────────────────────────────────────────────
+function AddTradeModal({stock,onClose,onConfirm}){
+  const [type,setType]=useState("buy");
+  const [qty,setQty]=useState("");
+  const [price,setPrice]=useState(String(stock.price));
+  const [date,setDate]=useState(new Date().toISOString().slice(0,10));
+  const total=(parseFloat(qty)||0)*(parseFloat(price)||0);
+  const fp=stock.cur==="USD"?"USD":"TWD";
+  const e=React.createElement;
+  return e("div",{style:{position:"fixed",inset:0,background:"rgba(5,12,22,.92)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,padding:"0 16px"}},
+    e("div",{style:{background:"#0d1b2e",border:"1px solid #1e3050",borderRadius:20,padding:"28px 24px",width:"100%",maxWidth:340}},
+      e("div",{style:{fontFamily:"'DM Serif Display',serif",fontSize:19,marginBottom:18,color:"#e8f0fe"}},`新增交易 — ${stock.ticker}`),
+      e("div",{style:{display:"flex",gap:8,marginBottom:18}},
+        ["buy","sell"].map(t=>e("button",{key:t,onClick:()=>setType(t),style:{flex:1,padding:"9px 0",borderRadius:10,border:"none",cursor:"pointer",fontWeight:700,fontSize:14,
+          background:type===t?(t==="buy"?"rgba(0,229,160,.15)":"rgba(255,94,94,.15)"):"#0a1525",
+          color:type===t?(t==="buy"?"#00e5a0":"#ff5e5e"):"#7a8fa6",
+          outline:type===t?`1.5px solid ${t==="buy"?"#00e5a0":"#ff5e5e"}`:"1px solid #1e3050"}},t==="buy"?"📈 買入":"📉 賣出"))),
+      [{label:"股數",val:qty,set:setQty,ph:"例如：100",t:"number"},
+       {label:`成交價（${fp}）`,val:price,set:setPrice,ph:"",t:"number"},
+       {label:"日期",val:date,set:setDate,ph:"",t:"date"}].map(f=>
+        e("div",{key:f.label,style:{marginBottom:14}},
+          e("div",{style:{color:"#7a8fa6",fontSize:12,marginBottom:4}},f.label),
+          e("input",{type:f.t,value:f.val,onChange:ev=>f.set(ev.target.value),placeholder:f.ph,
+            style:{width:"100%",padding:"10px 12px",borderRadius:10,background:"#0a1525",border:"1px solid #1e3050",color:"#e8f0fe",fontSize:15,outline:"none"}}))),
+      total>0&&e("div",{style:{background:"#0a1525",borderRadius:10,padding:"10px 14px",marginBottom:16,display:"flex",justifyContent:"space-between"}},
+        e("span",{style:{color:"#7a8fa6",fontSize:13}},"交易金額"),
+        e("span",{style:{color:"#e8f0fe",fontWeight:700}},stock.cur==="USD"?`$${total.toFixed(2)}`:`NT$${fmtN(total)}`)),
+      e("div",{style:{display:"flex",gap:10}},
+        e("button",{onClick:onClose,style:{flex:1,padding:"10px 0",borderRadius:10,border:"1px solid #1e3050",background:"transparent",color:"#7a8fa6",cursor:"pointer",fontWeight:600}},"取消"),
+        e("button",{onClick:()=>{if(!qty||!price)return;onConfirm({type,qty:parseFloat(qty),price:parseFloat(price),date});onClose();},
+          style:{flex:2,padding:"10px 0",borderRadius:10,border:"none",
+            background:type==="buy"?"linear-gradient(135deg,#0070f3,#00c2ff)":"linear-gradient(135deg,#ff5e5e,#ff9e6c)",
+            color:"#fff",cursor:"pointer",fontWeight:700,fontSize:15}},`確認${type==="buy"?"買入":"賣出"}`))));
+}
+
+// ── DCA Alert Modal ──────────────────────────────────────────────────────────
+function DCAAlertModal({alerts,onConfirm,onDismissAll}){
+  const [idx,setIdx]=useState(0);
+  const alert=alerts[idx];
+  if(!alert)return null;
+  const shares=Math.floor(alert.amount/alert.price);
+  const actual=shares*alert.price;
+  const e=React.createElement;
+  const next=()=>{if(idx<alerts.length-1)setIdx(i=>i+1);else onDismissAll();};
+  return e("div",{style:{position:"fixed",inset:0,background:"rgba(5,12,22,.93)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:400,padding:"0 16px"}},
+    e("div",{style:{background:"#0d1b2e",border:"1px solid #f5c84250",borderRadius:22,padding:"28px 24px",width:"100%",maxWidth:340}},
+      e("div",{style:{fontSize:28,textAlign:"center",marginBottom:8}},"📅"),
+      e("div",{style:{fontFamily:"'DM Serif Display',serif",fontSize:20,color:"#f5c842",textAlign:"center",marginBottom:6}},"定期定額到期提醒"),
+      e("div",{style:{color:"#7a8fa6",fontSize:13,textAlign:"center",marginBottom:20}},`今天是 ${alert.ticker} 的扣款日（每月${alert.day}日）`),
+      e("div",{style:{background:"#0a1525",borderRadius:14,padding:"16px",marginBottom:16}},
+        [["標的",`${alert.name}（${alert.ticker}）`],
+         ["扣款金額",`NT$${fmtN(alert.amount)}`],
+         ["目前市價",alert.cur==="USD"?`$${alert.price.toFixed(2)}`:`NT$${fmtN(alert.price,2)}`],
+         ["可買股數",`${shares} 股`],
+         ["實際扣款",`NT$${fmtN(actual)}`],
+         ["剩餘零頭",`NT$${fmtN(alert.amount-actual)}`]
+        ].map(([l,v])=>e("div",{key:l,style:{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid #1e2e44"}},
+          e("span",{style:{color:"#7a8fa6",fontSize:13}},l),
+          e("span",{style:{color:"#e8f0fe",fontWeight:700,fontSize:13}},v)))),
+      alerts.length>1&&e("div",{style:{color:"#7a8fa6",fontSize:12,textAlign:"center",marginBottom:12}},`${idx+1} / ${alerts.length} 筆提醒`),
+      e("div",{style:{display:"flex",gap:10}},
+        e("button",{onClick:next,style:{flex:1,padding:"10px 0",borderRadius:10,border:"1px solid #1e3050",background:"transparent",color:"#7a8fa6",cursor:"pointer",fontWeight:600,fontSize:13}},"略過"),
+        e("button",{onClick:()=>{onConfirm(alert,shares);next();},style:{flex:2,padding:"10px 0",borderRadius:10,border:"none",
+          background:"linear-gradient(135deg,#f5c842,#fb923c)",color:"#0d1b2e",cursor:"pointer",fontWeight:800,fontSize:14}},`✅ 確認買入 ${shares} 股`))));
+}
+
+// ── Detail Page ──────────────────────────────────────────────────────────────
+function DetailPage({stock,onBack,onAddTrade,onFetchPrice}){
+  const [showTrade,setShowTrade]=useState(false);
+  const st=calcStats(stock);
+  const e=React.createElement;
+  const fp=v=>stock.cur==="USD"?`$${v.toFixed(2)}`:`NT$${fmtN(v,stock.avg>=100?1:2)}`;
+  const fm=v=>stock.cur==="USD"?`$${v.toFixed(0)}`:`NT$${fmtN(v,0)}`;
+  return e("div",{style:{paddingBottom:60}},
+    // top bar
+    e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}},
+      e("button",{onClick:onBack,style:{background:"none",border:"none",color:"#7a8fa6",cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",gap:6,padding:0}},"← 返回"),
+      e("div",{style:{display:"flex",gap:8}},
+        e("button",{onClick:onFetchPrice,disabled:stock.priceLoading,style:{padding:"7px 12px",borderRadius:10,border:"1px solid #1e3050",background:"#0a1525",color:stock.priceLoading?"#3a5070":"#7a8fa6",cursor:"pointer",fontSize:12,fontWeight:600}},
+          stock.priceLoading?"抓取中…":"🔄 更新"),
+        e("button",{onClick:()=>setShowTrade(true),style:{padding:"7px 14px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#0070f3,#00c2ff)",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}},
+          "+ 新增交易"))),
+    // header
+    e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:22}},
+      e("div",null,
+        e("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:4}},
+          e("div",{style:{width:10,height:10,borderRadius:3,background:stock.color}}),
+          e("span",{style:{color:"#7a8fa6",fontSize:13}},stock.ticker),
+          e("span",{style:{fontSize:11,padding:"1px 8px",borderRadius:20,background:stock.cur==="USD"?"rgba(0,112,243,.18)":"rgba(0,229,160,.12)",color:stock.cur==="USD"?"#60a5fa":"#00e5a0",fontWeight:700}},stock.cur),
+          stock.dca&&e("span",{style:{fontSize:11,padding:"1px 8px",borderRadius:20,background:"rgba(245,200,66,.12)",color:"#f5c842",fontWeight:700}},"定期定額")),
+        e("div",{style:{fontFamily:"'DM Serif Display',serif",fontSize:26,color:"#e8f0fe"}},stock.name)),
+      e(Badge,{v:st.pnlPct})),
+    // price card
+    e("div",{className:"card",style:{background:"linear-gradient(135deg,#0d1f35,#0a1828)",border:"1px solid #1e3050",borderRadius:18,padding:"20px 22px",marginBottom:14}},
+      e("div",{style:{marginBottom:16}},
+        e("div",{style:{color:"#7a8fa6",fontSize:11,marginBottom:4}},"目前市價 ",stock.priceLoading&&e("span",{style:{color:"#0070f3",fontSize:10}},"更新中…")),
+        e("div",{style:{fontSize:30,fontWeight:800,color:"#e8f0fe"}},fp(stock.price))),
+      e("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},
+        [["持有股數",`${st.qty.toLocaleString()} 股`],["平均成本",fp(st.avgCost)],["投入成本",fm(st.costBasis)],["市值",fm(st.market)]].map(([l,v])=>
+          e("div",{key:l,style:{background:"#0a1525",borderRadius:12,padding:"11px 14px"}},
+            e("div",{style:{color:"#7a8fa6",fontSize:11,marginBottom:3}},l),
+            e("div",{style:{color:"#e8f0fe",fontWeight:700,fontSize:14}},v)))),
+      e("div",{style:{marginTop:10,background:"#0a1525",borderRadius:12,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}},
+        e("div",{style:{color:"#7a8fa6",fontSize:13}},"未實現損益"),
+        e("div",{style:{fontWeight:800,fontSize:20,color:pc(st.pnl)}},`${st.pnl>=0?"+":""}${fm(st.pnl)}`))),
+    // chart
+    e("div",{className:"card",style:{background:"linear-gradient(135deg,#0d1f35,#0a1828)",border:"1px solid #1e3050",borderRadius:18,padding:"18px 16px 14px",marginBottom:14}},
+      e("div",{style:{color:"#7a8fa6",fontSize:11,marginBottom:10}},"近 12 個月走勢（模擬）"),
+      e(BigChart,{stock,avgCost:st.avgCost}),
+      e("div",{style:{display:"flex",gap:16,marginTop:8,fontSize:11}},
+        e("span",{style:{color:stock.color}},"── 市價"),
+        e("span",{style:{color:"#ffffff40"}},"- - 均成本"))),
+    // transactions
+    stock.transactions.length>0&&e("div",{className:"card",style:{background:"linear-gradient(135deg,#0d1f35,#0a1828)",border:"1px solid #1e3050",borderRadius:18,padding:"18px 20px",marginBottom:14}},
+      e("div",{style:{color:"#7a8fa6",fontSize:11,marginBottom:12}},"交易紀錄"),
+      [...stock.transactions].reverse().map((t,i)=>
+        e("div",{key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderBottom:i<stock.transactions.length-1?"1px solid #1e2e44":"none"}},
+          e("div",{style:{display:"flex",alignItems:"center",gap:10}},
+            e("div",{style:{width:30,height:30,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,background:t.type==="buy"?"rgba(0,229,160,.1)":"rgba(255,94,94,.1)"}},t.type==="buy"?"📈":"📉"),
+            e("div",null,
+              e("div",{style:{color:t.type==="buy"?"#00e5a0":"#ff5e5e",fontWeight:700,fontSize:13}},
+                `${t.type==="buy"?"買入":"賣出"} ${t.qty.toLocaleString()} 股`,
+                t.isDCA&&e("span",{style:{marginLeft:6,fontSize:10,padding:"0 5px",borderRadius:6,background:"rgba(245,200,66,.12)",color:"#f5c842"}},"DCA")),
+              e("div",{style:{color:"#7a8fa6",fontSize:11}},t.date))),
+          e("div",{style:{textAlign:"right"}},
+            e("div",{style:{color:"#e8f0fe",fontWeight:700,fontSize:13}},fp(t.price)),
+            e("div",{style:{color:"#7a8fa6",fontSize:11}},`小計 ${fm(t.qty*t.price)}`))))),
+    // DCA info
+    stock.dca&&e("div",{className:"card",style:{background:"linear-gradient(135deg,#0d1f35,#0a1828)",border:"1px solid #1e3050",borderRadius:18,padding:"18px 22px"}},
+      e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}},
+        e("div",{style:{color:"#7a8fa6",fontSize:11}},"📅 定期定額明細"),
+        e("div",{style:{fontSize:14,fontWeight:800,color:"#f5c842"}},`每月合計 NT$${fmtN(stock.dca.monthlyTotal)}`)),
+      stock.dca.rows.map((row,i)=>
+        e("div",{key:i,style:{background:"#0a1525",borderRadius:12,padding:"14px 16px"}},
+          e("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}},
+            [["扣款日期",`每月 ${row.days.join("、")} 日`],["每次金額",`NT$${fmtN(row.amount)}`],
+             ["每月次數",`${row.days.length} 次`],["單標小計",`NT$${fmtN(row.days.length*row.amount)}`]].map(([l,v])=>
+              e("div",{key:l},e("div",{style:{color:"#7a8fa6",fontSize:11,marginBottom:2}},l),e("div",{style:{color:"#e8f0fe",fontWeight:700,fontSize:13}},v)))),
+          e("div",{style:{borderTop:"1px solid #1e2e44",paddingTop:10,display:"flex",justifyContent:"space-between"}},
+            e("span",{style:{color:"#7a8fa6",fontSize:12}},`${row.days.length}次 × NT$${fmtN(row.amount)}`),
+            e("span",{style:{color:"#f5c842",fontWeight:800}},`= NT$${fmtN(row.days.length*row.amount)}/月`))))),
+    showTrade&&e(AddTradeModal,{stock,onClose:()=>setShowTrade(false),onConfirm:t=>onAddTrade(stock.id,t)}));
+}
+
+// ── Main App ─────────────────────────────────────────────────────────────────
+function App(){
+  const [stocks,setStocks]=useState(initStocks);
+  const [selected,setSelected]=useState(null);
+  const [tab,setTab]=useState("all");
+  const [globalLoading,setGL]=useState(false);
+  const [lastUpdated,setLastUpdated]=useState(null);
+  const [dcaAlerts,setDcaAlerts]=useState([]);
+  const [apiKey,setApiKey]=useState(()=>localStorage.getItem(API_KEY_STORAGE)||"");
+  const [showApiModal,setShowApiModal]=useState(false);
+  const e=React.createElement;
+
+  // save to localStorage
+  useEffect(()=>{try{localStorage.setItem(STORAGE_KEY,JSON.stringify(stocks));}catch(err){}}, [stocks]);
+
+  // fetch one
+  const fetchOne=useCallback(async(id)=>{
+    setStocks(prev=>prev.map(s=>s.id===id?{...s,priceLoading:true}:s));
+    const s=stocks.find(s=>s.id===id);
+    const p=await fetchLivePrice(s.ticker,s.cur,apiKey);
+    setStocks(prev=>prev.map(s=>s.id===id?{...s,price:p??s.price,priceLoading:false,history:[...s.history.slice(0,-1),p??s.price]}:s));
+  },[stocks,apiKey]);
+
+  // fetch all
+  const fetchAll=useCallback(async()=>{
+    if(!apiKey){setShowApiModal(true);return;}
+    setGL(true);
+    setStocks(prev=>prev.map(s=>({...s,priceLoading:true})));
+    await Promise.all(stocks.map(async s=>{
+      const p=await fetchLivePrice(s.ticker,s.cur,apiKey);
+      if(p) setStocks(prev=>prev.map(st=>st.id===s.id?{...st,price:p,priceLoading:false,history:[...st.history.slice(0,-1),p]}:st));
+      else setStocks(prev=>prev.map(st=>st.id===s.id?{...st,priceLoading:false}:st));
+    }));
+    setGL(false);
+    const now=new Date();
+    setLastUpdated(now);
+    // check DCA
+    const today=now.getDate();
+    const alerts=[];
+    stocks.forEach(s=>{
+      if(!s.dca)return;
+      s.dca.rows.forEach(row=>{
+        if(row.days.includes(today)) alerts.push({id:s.id,ticker:s.ticker,name:s.name,cur:s.cur,price:s.price,amount:row.amount,day:today});
+      });
+    });
+    setDcaAlerts(alerts);
+  },[stocks,apiKey]);
+
+  // auto fetch on mount
+  useEffect(()=>{if(apiKey)fetchAll();},[]);// eslint-disable-line
+
+  const saveApiKey=key=>{setApiKey(key);if(key)localStorage.setItem(API_KEY_STORAGE,key);setShowApiModal(false);if(key)setTimeout(fetchAll,300);};
+  const addTrade=(id,t)=>setStocks(prev=>prev.map(s=>s.id===id?{...s,transactions:[...s.transactions,t]}:s));
+  const confirmDCA=(alert,shares)=>{
+    if(shares<=0)return;
+    const today=new Date().toISOString().slice(0,10);
+    setStocks(prev=>prev.map(s=>s.id===alert.id?{...s,transactions:[...s.transactions,{type:"buy",qty:shares,price:alert.price,date:today,isDCA:true}]}:s));
+  };
+
+  const filtered=tab==="twd"?stocks.filter(s=>s.cur==="TWD"):tab==="usd"?stocks.filter(s=>s.cur==="USD"):tab==="dca"?stocks.filter(s=>s.dca):stocks;
+  const totalTWD=stocks.reduce((s,st)=>s+calcStats(st).mktTWD,0);
+  const costTWD=stocks.reduce((s,st)=>s+calcStats(st).costTWD,0);
+  const pnlTWD=totalTWD-costTWD;
+  const pnlPct=costTWD>0?(pnlTWD/costTWD)*100:0;
+  const selStock=selected?stocks.find(s=>s.id===selected):null;
+
+  // donut
+  function DonutChart(){
+    const size=110,cx=55,cy=55,r=42,sw=18,circ=2*Math.PI*r;
+    let off=0;
+    const slices=stocks.map(s=>{const share=calcStats(s).mktTWD/totalTWD,dash=share*circ,sl={id:s.id,color:s.color,ticker:s.ticker,dash,offset:off};off+=dash;return sl;});
+    return e("div",{style:{display:"flex",alignItems:"center",gap:14}},
+      e("svg",{width:size,height:size,style:{flexShrink:0}},
+        e("circle",{cx,cy,r,fill:"none",stroke:"#1a2a3e",strokeWidth:sw}),
+        slices.map(sl=>e("circle",{key:sl.id,cx,cy,r,fill:"none",stroke:sl.color,strokeWidth:sw,
+          strokeDasharray:`${sl.dash} ${circ}`,strokeDashoffset:-sl.offset,transform:`rotate(-90 ${cx} ${cy})`})),
+        e("text",{x:cx,y:cy-5,textAnchor:"middle",fill:"#e8f0fe",fontSize:9,fontWeight:700},"總市值"),
+        e("text",{x:cx,y:cy+7,textAnchor:"middle",fill:"#7a8fa6",fontSize:8},"TWD換算")),
+      e("div",{style:{flex:1}},
+        stocks.slice(0,7).map(s=>e("div",{key:s.id,style:{display:"flex",alignItems:"center",gap:5,marginBottom:3}},
+          e("div",{style:{width:7,height:7,borderRadius:2,background:s.color,flexShrink:0}}),
+          e("div",{style:{fontSize:11,color:"#a0b0c0",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},s.ticker),
+          e("div",{style:{fontSize:11,color:"#e8f0fe",fontWeight:600}},(calcStats(s).mktTWD/totalTWD*100).toFixed(1)+"%")))));
+  }
+
+  return e("div",{style:{minHeight:"100vh",background:"#060e1a"}},
+    e("div",{style:{position:"fixed",inset:0,pointerEvents:"none",zIndex:0,background:"radial-gradient(ellipse 60% 40% at 15% 0%,rgba(0,112,243,.10) 0%,transparent 70%),radial-gradient(ellipse 40% 30% at 85% 85%,rgba(0,229,160,.06) 0%,transparent 70%)"}}),
+    e("div",{style:{position:"relative",zIndex:1,maxWidth:480,margin:"0 auto",padding:"0 16px"}},
+      selStock?e("div",{style:{paddingTop:28}},
+        e(DetailPage,{stock:selStock,onBack:()=>setSelected(null),onAddTrade:addTrade,onFetchPrice:()=>fetchOne(selStock.id)}))
+      :e(React.Fragment,null,
+        // header
+        e("div",{style:{padding:"28px 0 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}},
+          e("div",null,
+            e("div",{style:{fontFamily:"'DM Serif Display',serif",fontSize:24}},"投資組合"),
+            e("div",{style:{color:"#7a8fa6",fontSize:12}},"Portfolio Tracker")),
+          e("div",{style:{display:"flex",gap:8}},
+            e("button",{onClick:()=>setShowApiModal(true),style:{padding:"8px 10px",borderRadius:11,border:"1px solid #1e3050",background:"#0d1b2e",color:"#7a8fa6",cursor:"pointer",fontSize:12}},"🔑"),
+            e("button",{onClick:fetchAll,disabled:globalLoading,style:{padding:"8px 14px",borderRadius:11,border:"none",cursor:globalLoading?"not-allowed":"pointer",fontWeight:700,fontSize:13,
+              background:globalLoading?"#1e2e44":"linear-gradient(135deg,#0070f3,#00c2ff)",color:globalLoading?"#3a5070":"#fff",display:"flex",alignItems:"center",gap:6}},
+              globalLoading?e(React.Fragment,null,e("span",{style:{display:"inline-block",animation:"spin 1s linear infinite"}},"⟳")," 更新中"):"🔄 更新全部"))),
+        lastUpdated&&e("div",{style:{color:"#3a5070",fontSize:11,marginBottom:14}},`最後更新：${lastUpdated.toLocaleTimeString("zh-TW")}`),
+        !apiKey&&e("div",{onClick:()=>setShowApiModal(true),style:{background:"rgba(0,112,243,.1)",border:"1px solid rgba(0,112,243,.3)",borderRadius:12,padding:"10px 16px",marginBottom:14,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}},
+          e("span",{style:{color:"#60a5fa",fontSize:13}},"🔑 設定 API Key 以啟用即時股價"),
+          e("span",{style:{color:"#0070f3",fontSize:12,fontWeight:700}},"設定 →")),
+        // summary card
+        e("div",{className:"card",style:{background:"linear-gradient(135deg,#0d1f35,#0a1828)",border:"1px solid #1e3050",borderRadius:22,padding:"22px 20px",marginBottom:16,position:"relative",overflow:"hidden"}},
+          e("div",{style:{position:"absolute",top:-30,right:-30,width:130,height:130,borderRadius:"50%",background:"radial-gradient(circle,rgba(0,112,243,.12),transparent 70%)"}}),
+          e("div",{style:{color:"#7a8fa6",fontSize:12,marginBottom:6}},"總資產市值（台幣換算）"),
+          e("div",{style:{fontFamily:"'DM Serif Display',serif",fontSize:32,letterSpacing:"-0.5px",marginBottom:6}},`NT$ ${fmtN(totalTWD)}`),
+          e("div",{style:{display:"flex",alignItems:"center",gap:10,marginBottom:18}},
+            e(Badge,{v:pnlPct}),
+            e("span",{style:{color:"#7a8fa6",fontSize:13}},`${pnlTWD>=0?"+":""}NT$${fmtN(pnlTWD)} 未實現損益`)),
+          e(DonutChart,null)),
+        // tabs
+        e("div",{style:{display:"flex",gap:6,marginBottom:14}},
+          [["all","全部"],["twd","台股"],["usd","美股"],["dca","定期定額"]].map(([key,label])=>
+            e("button",{key,onClick:()=>setTab(key),style:{flex:1,padding:"7px 0",borderRadius:10,border:"none",cursor:"pointer",fontSize:12,fontWeight:700,
+              background:tab===key?"linear-gradient(135deg,#0070f3,#00c2ff)":"#0d1b2e",color:tab===key?"#fff":"#7a8fa6",
+              outline:tab===key?"none":"1px solid #1e3050"}},label))),
+        // DCA tab
+        tab==="dca"&&e("div",{className:"card",style:{background:"linear-gradient(135deg,#0d1f35,#0a1828)",border:"1px solid #1e3050",borderRadius:18,padding:"16px 20px",marginBottom:14}},
+          e("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}},
+            [["台股每月總扣款",`NT$${fmtN(stocks.filter(s=>s.dca&&s.cur==="TWD").reduce((s,st)=>s+st.dca.monthlyTotal,0))}`,  "#00e5a0"],
+             ["美股每月總扣款",`NT$${fmtN(stocks.filter(s=>s.dca&&s.cur==="USD").reduce((s,st)=>s+st.dca.monthlyTotal,0))}`,  "#60a5fa"]].map(([l,v,c])=>
+              e("div",{key:l,style:{background:"#0a1525",borderRadius:12,padding:"12px 14px"}},
+                e("div",{style:{color:"#7a8fa6",fontSize:11,marginBottom:4}},l),
+                e("div",{style:{color:c,fontWeight:800,fontSize:18}},v)))),
+          stocks.filter(s=>s.dca).map(s=>{const row=s.dca.rows[0];return e("div",{key:s.id,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderBottom:"1px solid #1e2e44"}},
+            e("div",{style:{display:"flex",alignItems:"center",gap:8}},
+              e("div",{style:{width:8,height:8,borderRadius:2,background:s.color}}),
+              e("div",null,
+                e("div",{style:{color:"#e8f0fe",fontWeight:700,fontSize:13}},s.name),
+                e("div",{style:{color:"#7a8fa6",fontSize:11}},`每月${row.days.join("、")}日 × NT$${fmtN(row.amount)} × ${row.days.length}次`))),
+            e("div",{style:{color:"#f5c842",fontWeight:800,fontSize:14}},`NT$${fmtN(s.dca.monthlyTotal)}`))}),
+          e("div",{style:{marginTop:12,padding:"10px 14px",background:"#0a1525",borderRadius:12,display:"flex",justifyContent:"space-between"}},
+            e("span",{style:{color:"#7a8fa6",fontSize:13}},"每月總投入"),
+            e("span",{style:{color:"#f5c842",fontSize:16,fontWeight:800}},`NT$${fmtN(stocks.filter(s=>s.dca).reduce((s,st)=>s+st.dca.monthlyTotal,0))}`))),
+        // stock list
+        e("div",{style:{display:"flex",flexDirection:"column",gap:10,paddingBottom:40}},
+          filtered.map(s=>{
+            const st=calcStats(s);
+            const fp=v=>s.cur==="USD"?`$${v.toFixed(2)}`:`NT$${fmtN(v,s.avg>=100?1:2)}`;
+            const fm=v=>s.cur==="USD"?`$${v.toFixed(0)}`:`NT$${fmtN(v,0)}`;
+            return e("div",{key:s.id,onClick:()=>setSelected(s.id),className:"card",
+              style:{background:"linear-gradient(135deg,#0d1f35,#0a1828)",border:"1px solid #1e3050",borderRadius:18,padding:"16px 18px",cursor:"pointer",transition:"border-color .2s"},
+              onMouseEnter:ev=>ev.currentTarget.style.borderColor="#2a4060",
+              onMouseLeave:ev=>ev.currentTarget.style.borderColor="#1e3050"},
+              e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}},
+                e("div",null,
+                  e("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:2}},
+                    e("div",{style:{width:8,height:8,borderRadius:2,background:s.color}}),
+                    e("span",{style:{color:"#7a8fa6",fontSize:12}},s.ticker),
+                    s.priceLoading&&e("span",{style:{fontSize:10,color:"#0070f3",animation:"spin 1s linear infinite"}},"⟳"),
+                    s.dca&&e("span",{style:{fontSize:10,padding:"0px 5px",borderRadius:8,background:"rgba(245,200,66,.12)",color:"#f5c842"}},"DCA")),
+                  e("div",{style:{fontWeight:700,fontSize:15,color:"#e8f0fe"}},s.name)),
+                e(Badge,{v:st.pnlPct})),
+              e("div",{style:{margin:"8px -2px 6px"}},e(Spark,{history:s.history,color:s.color,avg:s.avg})),
+              e("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7}},
+                [["市值",fm(st.market)],["均成本",fp(st.avgCost)],["損益",(st.pnl>=0?"+":"")+fm(st.pnl)]].map(([l,v])=>
+                  e("div",{key:l,style:{background:"#0a1525",borderRadius:9,padding:"8px 10px"}},
+                    e("div",{style:{color:"#7a8fa6",fontSize:10,marginBottom:2}},l),
+                    e("div",{style:{fontWeight:700,fontSize:12,color:l==="損益"?pc(st.pnl):"#e8f0fe"}},v)))),
+              s.dca&&e("div",{style:{marginTop:8,background:"rgba(245,200,66,.07)",borderRadius:9,padding:"7px 12px",display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid rgba(245,200,66,.15)"}},
+                e("span",{style:{color:"#f5c842",fontSize:11}},"📅 每月定扣"),
+                e("span",{style:{color:"#f5c842",fontWeight:700,fontSize:13}},`NT$ ${fmtN(s.dca.monthlyTotal)}`)))})))),
+    dcaAlerts.length>0&&e(DCAAlertModal,{alerts:dcaAlerts,onConfirm:confirmDCA,onDismissAll:()=>setDcaAlerts([])}),
+    showApiModal&&e(ApiKeyModal,{onSave:saveApiKey}));
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+</script>
+</body>
+</html>

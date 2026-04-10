@@ -1,0 +1,23 @@
+{
+  "name": "投資組合 Portfolio Tracker",
+  "short_name": "投資組合",
+  "description": "個人股票投資損益追蹤",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#060e1a",
+  "theme_color": "#060e1a",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
