@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-title" content="投資組合"/>
+<meta name="theme-color" content="#060e1a"/>
+<title>投資組合</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#060e1a;color:#e8f0fe;font-family:system-ui,sans-serif;min-height:100vh}
+.wrap{max-width:480px;margin:0 auto;padding:0 16px 40px}
+h1{font-size:24px;padding:24px 0 4px}
+.sub{color:#7a8fa6;font-size:12px;margin-bottom:20px}
+.card{background:#0d1f35;border:1px solid #1e3050;border-radius:16px;padding:18px;margin-bottom:12px}
+.big{font-size:30px;font-weight:800;margin:6px 0}
+.row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px}
+.cell{background:#0a1525;border-radius:10px;padding:10px 12px}
+.lbl{color:#7a8fa6;font-size:11px;margin-bottom:3px}
+.val{font-weight:700;font-size:13px}
+.badge{padding:2px 9px;border-radius:20px;font-size:12px;font-weight:700}
+.grn{color:#00e5a0;background:rgba(0,229,160,.14);border:1px solid rgba(0,229,160,.25)}
+.red{color:#ff5e5e;background:rgba(255,94,94,.14);border:1px solid rgba(255,94,94,.25)}
+.dca{background:rgba(245,200,66,.08);border:1px solid rgba(245,200,66,.2);border-radius:10px;padding:7px 12px;display:flex;justify-content:space-between;margin-top:8px}
+.dca span{color:#f5c842;font-size:12px;font-weight:700}
+.tag{font-size:10px;padding:1px 6px;border-radius:8px;margin-left:4px}
+.tw{background:rgba(0,229,160,.12);color:#00e5a0}
+.us{background:rgba(0,112,243,.18);color:#60a5fa}
+.dc{background:rgba(245,200,66,.12);color:#f5c842}
+.ticker{color:#7a8fa6;font-size:12px}
+.name{font-weight:700;font-size:15px;margin-top:2px}
+.tabs{display:flex;gap:6px;margin-bottom:14px}
+.tab{flex:1;padding:7px 0;border-radius:10px;border:none;cursor:pointer;font-size:12px;font-weight:700;background:#0d1b2e;color:#7a8fa6;outline:1px solid #1e3050}
+.tab.on{background:linear-gradient(135deg,#0070f3,#00c2ff);color:#fff;outline:none}
+.btn{padding:8px 14px;border-radius:10px;border:none;cursor:pointer;font-weight:700;font-size:13px}
+.btnp{background:linear-gradient(135deg,#0070f3,#00c2ff);color:#fff}
+.btns{background:#0d1b2e;color:#7a8fa6;outline:1px solid #1e3050}
+.topbar{display:flex;justify-content:space-between;align-items:center;padding:24px 0 4px}
+.stk{cursor:pointer;transition:border-color .2s}
+.stk:hover{border-color:#2a4060}
+.back{background:none;border:none;color:#7a8fa6;cursor:pointer;font-size:13px;padding:0;margin-bottom:18px;display:block}
+.modal-bg{position:fixed;inset:0;background:rgba(5,12,22,.92);display:flex;align-items:center;justify-content:center;z-index:100;padding:0 20px}
+.modal{background:#0d1b2e;border:1px solid #1e3050;border-radius:20px;padding:26px 22px;width:100%;max-width:340px}
+.modal h3{font-size:18px;margin-bottom:16px}
+.inp{width:100%;padding:10px 12px;border-radius:10px;background:#0a1525;border:1px solid #1e3050;color:#e8f0fe;font-size:15px;outline:none;margin-bottom:12px}
+.ttype{display:flex;gap:8px;margin-bottom:14px}
+.tt{flex:1;padding:9px 0;border-radius:10px;border:none;cursor:pointer;font-weight:700;font-size:14px}
+.pnl-row{background:#0a1525;border-radius:10px;padding:12px 14px;display:flex;justify-content:space-between;align-items:center;margin-top:8px}
+/* sparkline */
+.spark{width:100%;height:44px;display:block;margin:8px 0 6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div id="app"></div>
+</div>
+
+<script>
+const USD_TWD = 32.5;
+const N = (v,d=0) => new Intl.NumberFormat('zh-TW',{maximumFractionDigits:d}).format(v);
+const PC = v => (v>=0?'+':'')+v.toFixed(2)+'%';
+const GR = v => v>=0?'grn':'red';
+
+const STOCKS = [
+  {id:1, t:'0050',   n:'元大台灣50',       c:'TWD', q:3027,  a:72.07,   p:80.75,  dca:{days:[10,20,30],amt:2000}},
+  {id:2, t:'00955',  n:'中信日本商社',     c:'TWD', q:13000, a:12.16,   p:16.04,  dca:null},
+  {id:3, t:'00981A', n:'主動統一台股增長', c:'TWD', q:9013,  a:17.37,   p:23.13,  dca:{days:[10],amt:2000}},
+  {id:4, t:'2308',   n:'台達電',           c:'TWD', q:60,    a:1716.2,  p:1735,   dca:null},
+  {id:5, t:'2330',   n:'台積電',           c:'TWD', q:222,   a:1566.81, p:2000,   dca:{days:[10,25],amt:3000}},
+  {id:6, t:'2891',   n:'中信金',           c:'TWD', q:2019,  a:46.45,   p:54,     dca:{days:[10],amt:1000}},
+  {id:7, t:'3105',   n:'穩懋',             c:'TWD', q:60,    a:450.5,   p:464,    dca:null},
+  {id:8, t:'GOOGL',  n:'谷歌 Alphabet',    c:'USD', q:15,    a:267.736, p:318.49, dca:null},
+  {id:9, t:'KO',     n:'可口可樂',         c:'USD', q:20,    a:77.74,   p:78.18,  dca:null},
+  {id:10,t:'ONDS',   n:'Ondas Inc',        c:'USD', q:200,   a:4.83,    p:9.14,   dca:null},
+  {id:11,t:'VOO',    n:'Vanguard S&P500',  c:'USD', q:2,     a:596.845, p:625.02, dca:{days:[13,23],amt:5000}},
+];
+
+// load saved data
+const SK = 'pf_v5';
+let stocks = (() => {
+  try { const s = localStorage.getItem(SK); if(s) return JSON.parse(s); } catch(e) {}
+  return STOCKS.map(s => ({...s, tx:[]}));
+})();
+
+const save = () => { try { localStorage.setItem(SK, JSON.stringify(stocks)); } catch(e) {} };
+
+const dcaTotal = s => s.dca ? s.dca.days.length * s.dca.amt : 0;
+
+const calcStat = s => {
+  let q = s.q, cb = s.a * s.q;
+  for(const t of (s.tx||[])) {
+    if(t.type==='buy'){cb+=t.p*t.q;q+=t.q}
+    else{cb-=(cb/q)*t.q;q-=t.q}
+  }
+  const avg=q>0?cb/q:0, mkt=s.p*q, pnl=mkt-cb, pct=cb>0?(pnl/cb)*100:0;
+  const mktT=s.c==='USD'?mkt*USD_TWD:mkt, cbT=s.c==='USD'?cb*USD_TWD:cb;
+  return {q,avg,cb,mkt,pnl,pct,mktT,cbT};
+};
+
+const fp = (s,v) => s.c==='USD' ? '$'+v.toFixed(2) : 'NT$'+N(v,s.a>=100?1:2);
+const fm = (s,v) => s.c==='USD' ? '$'+v.toFixed(0) : 'NT$'+N(v);
+
+// sparkline SVG
+const spark = (s) => {
+  const vals = s._hist || [];
+  if(vals.length<2) return '';
+  const W=300,H=44,pd=2;
+  const mn=Math.min(...vals), mx=Math.max(...vals), rng=mx-mn||1;
+  const pts = vals.map((v,i)=>[pd+i/(vals.length-1)*(W-pd*2), pd+(H-pd*2)-(((v-mn)/rng)*(H-pd*2))]);
+  const path = pts.map((p,i)=>`${i?'L':'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+  const area = path+` L${pts[pts.length-1][0]},${H} L${pts[0][0]},${H} Z`;
+  const col = s.p >= s.a ? '#00e5a0' : '#ff5e5e';
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}">
+    <defs><linearGradient id="sg${s.id}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="${col}" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="${col}" stop-opacity="0"/>
+    </linearGradient></defs>
+    <path d="${area}" fill="url(#sg${s.id})"/>
+    <path d="${path}" fill="none" stroke="${col}" stroke-width="1.5" stroke-linecap="round"/>
+  </svg>`;
+};
+
+// generate mock history
+const mkHist = (cur, avg) => {
+  const n=12, start=avg*(0.9+Math.random()*0.1);
+  return Array.from({length:n},(_,i)=>{
+    const t=i/(n-1), b=start+(cur-start)*Math.pow(t,1.3);
+    return i===n-1?cur:+(b*(1+(Math.random()*.06-.03))).toFixed(2);
+  });
+};
+stocks.forEach(s => { if(!s._hist) s._hist = mkHist(s.p, s.a); });
+
+// ── state ──────────────────────────────────────────────────────────────────
+let state = { view:'list', tab:'all', selId:null, showTx:false, txType:'buy' };
+const S = () => state;
+
+// ── render ─────────────────────────────────────────────────────────────────
+const app = document.getElementById('app');
+
+function render() {
+  const {view, tab, selId, showTx, txType} = S();
+
+  if(view==='list') renderList();
+  else if(view==='detail') renderDetail(stocks.find(s=>s.id===selId));
+}
+
+function renderList() {
+  const {tab} = S();
+  const fil = tab==='twd'?stocks.filter(s=>s.c==='TWD'):
+              tab==='usd'?stocks.filter(s=>s.c==='USD'):
+              tab==='dca'?stocks.filter(s=>s.dca):stocks;
+
+  const totT = stocks.reduce((s,x)=>s+calcStat(x).mktT,0);
+  const cbT  = stocks.reduce((s,x)=>s+calcStat(x).cbT,0);
+  const pnlT = totT-cbT, pctT = cbT>0?(pnlT/cbT)*100:0;
+
+  const twdDCA = stocks.filter(s=>s.dca&&s.c==='TWD').reduce((s,x)=>s+dcaTotal(x),0);
+  const usdDCA = stocks.filter(s=>s.dca&&s.c==='USD').reduce((s,x)=>s+dcaTotal(x),0);
+
+  app.innerHTML = `
+    <div class="topbar">
+      <div><h1>投資組合</h1><div class="sub">Portfolio Tracker</div></div>
+    </div>
+
+    <div class="card" style="border-radius:20px;margin-bottom:16px">
+      <div class="lbl">總資產市值（台幣換算）</div>
+      <div class="big">NT$ ${N(totT)}</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+        <span class="badge ${GR(pctT)}">${PC(pctT)}</span>
+        <span style="color:#7a8fa6;font-size:13px">${pnlT>=0?'+':''}NT$${N(pnlT)} 未實現損益</span>
+      </div>
+      <div class="grid2">
+        <div class="cell"><div class="lbl">台股每月定扣</div><div class="val" style="color:#00e5a0">NT$${N(twdDCA)}</div></div>
+        <div class="cell"><div class="lbl">美股每月定扣</div><div class="val" style="color:#60a5fa">NT$${N(usdDCA)}</div></div>
+      </div>
+    </div>
+
+    <div class="tabs">
+      ${[['all','全部'],['twd','台股'],['usd','美股'],['dca','定期定額']].map(([k,l])=>
+        `<button class="tab${S().tab===k?' on':''}" onclick="setTab('${k}')">${l}</button>`).join('')}
+    </div>
+
+    ${tab==='dca' ? renderDCA() : ''}
+
+    <div id="slist">
+      ${fil.map(s => renderStockCard(s)).join('')}
+    </div>
+  `;
+}
+
+function renderDCA() {
+  return `<div class="card" style="margin-bottom:12px">
+    <div class="lbl" style="margin-bottom:12px">📅 定期定額明細</div>
+    ${stocks.filter(s=>s.dca).map(s=>`
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #1e2e44">
+        <div>
+          <div style="font-weight:700;font-size:13px;color:#e8f0fe">${s.n}</div>
+          <div style="color:#7a8fa6;font-size:11px">每月${s.dca.days.join('、')}日 × NT$${N(s.dca.amt)} × ${s.dca.days.length}次</div>
+        </div>
+        <div style="color:#f5c842;font-weight:800">NT$${N(dcaTotal(s))}</div>
+      </div>`).join('')}
+    <div style="display:flex;justify-content:space-between;margin-top:10px;padding:8px 12px;background:#0a1525;border-radius:10px">
+      <span style="color:#7a8fa6">每月總投入</span>
+      <span style="color:#f5c842;font-weight:800;font-size:16px">NT$${N(stocks.filter(s=>s.dca).reduce((s,x)=>s+dcaTotal(x),0))}</span>
+    </div>
+  </div>`;
+}
+
+function renderStockCard(s) {
+  const st = calcStat(s);
+  return `
+    <div class="card stk" onclick="openDetail(${s.id})">
+      <div class="row">
+        <div>
+          <div><span class="ticker">${s.t}</span><span class="tag ${s.c==='USD'?'us':'tw'}">${s.c}</span>${s.dca?'<span class="tag dc">DCA</span>':''}</div>
+          <div class="name">${s.n}</div>
+        </div>
+        <span class="badge ${GR(st.pct)}">${PC(st.pct)}</span>
+      </div>
+      ${spark(s)}
+      <div class="grid3">
+        <div class="cell"><div class="lbl">市值</div><div class="val">${fm(s,st.mkt)}</div></div>
+        <div class="cell"><div class="lbl">均成本</div><div class="val">${fp(s,st.avg)}</div></div>
+        <div class="cell"><div class="lbl">損益</div><div class="val ${GR(st.pnl)}" style="color:${st.pnl>=0?'#00e5a0':'#ff5e5e'}">${(st.pnl>=0?'+':'')+fm(s,st.pnl)}</div></div>
+      </div>
+      ${s.dca?`<div class="dca"><span>📅 每月定扣</span><span>NT$ ${N(dcaTotal(s))}</span></div>`:''}
+    </div>`;
+}
+
+function renderDetail(s) {
+  const st = calcStat(s);
+  const {showTx, txType} = S();
+
+  app.innerHTML = `
+    <div style="padding-top:24px">
+      <button class="back" onclick="goBack()">← 返回</button>
+
+      <div class="row" style="margin-bottom:20px">
+        <div>
+          <div><span class="ticker">${s.t}</span><span class="tag ${s.c==='USD'?'us':'tw'}" style="margin-left:6px">${s.c}</span>${s.dca?'<span class="tag dc" style="margin-left:4px">定期定額</span>':''}</div>
+          <div style="font-size:24px;font-weight:800;margin-top:4px">${s.n}</div>
+        </div>
+        <span class="badge ${GR(st.pct)}">${PC(st.pct)}</span>
+      </div>
+
+      <div class="card">
+        <div class="lbl">目前市價</div>
+        <div class="big">${fp(s,s.p)}</div>
+        <div class="grid2">
+          <div class="cell"><div class="lbl">持有股數</div><div class="val">${st.q.toLocaleString()} 股</div></div>
+          <div class="cell"><div class="lbl">平均成本</div><div class="val">${fp(s,st.avg)}</div></div>
+          <div class="cell"><div class="lbl">投入成本</div><div class="val">${fm(s,st.cb)}</div></div>
+          <div class="cell"><div class="lbl">市值</div><div class="val">${fm(s,st.mkt)}</div></div>
+        </div>
+        <div class="pnl-row">
+          <span style="color:#7a8fa6">未實現損益</span>
+          <span style="font-size:20px;font-weight:800;color:${st.pnl>=0?'#00e5a0':'#ff5e5e'}">${(st.pnl>=0?'+':'')+fm(s,st.pnl)}</span>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:12px">
+        <div class="lbl" style="margin-bottom:8px">近 12 個月走勢（模擬）</div>
+        ${spark(s)}
+        <div style="display:flex;gap:16px;font-size:11px;margin-top:4px">
+          <span style="color:${s.p>=s.a?'#00e5a0':'#ff5e5e'}">── 市價</span>
+        </div>
+      </div>
+
+      <button class="btn btnp" style="width:100%;margin-bottom:12px" onclick="toggleTx()">＋ 新增交易</button>
+
+      ${showTx ? renderTxForm(s) : ''}
+
+      ${(s.tx||[]).length>0 ? `
+        <div class="card">
+          <div class="lbl" style="margin-bottom:10px">交易紀錄</div>
+          ${[...(s.tx||[])].reverse().map((t,i,arr)=>`
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;${i<arr.length-1?'border-bottom:1px solid #1e2e44':''}">
+              <div>
+                <div style="color:${t.type==='buy'?'#00e5a0':'#ff5e5e'};font-weight:700;font-size:13px">${t.type==='buy'?'買入':'賣出'} ${t.q.toLocaleString()} 股${t.dca?' <span style="font-size:10px;padding:0 4px;border-radius:6px;background:rgba(245,200,66,.12);color:#f5c842">DCA</span>':''}</div>
+                <div style="color:#7a8fa6;font-size:11px">${t.dt}</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-weight:700;font-size:13px">${fp(s,t.p)}</div>
+                <div style="color:#7a8fa6;font-size:11px">小計 ${fm(s,t.q*t.p)}</div>
+              </div>
+            </div>`).join('')}
+        </div>` : ''}
+
+      ${s.dca ? `
+        <div class="card">
+          <div class="row"><div class="lbl">📅 定期定額明細</div><div style="color:#f5c842;font-weight:800">每月 NT$${N(dcaTotal(s))}</div></div>
+          <div class="cell" style="margin-top:10px">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <div><div class="lbl">扣款日期</div><div class="val">每月 ${s.dca.days.join('、')} 日</div></div>
+              <div><div class="lbl">每次金額</div><div class="val">NT$${N(s.dca.amt)}</div></div>
+              <div><div class="lbl">每月次數</div><div class="val">${s.dca.days.length} 次</div></div>
+              <div><div class="lbl">單標小計</div><div class="val" style="color:#f5c842">NT$${N(dcaTotal(s))}</div></div>
+            </div>
+            <div style="border-top:1px solid #1e2e44;margin-top:10px;padding-top:8px;display:flex;justify-content:space-between;color:#7a8fa6;font-size:12px">
+              <span>${s.dca.days.length}次 × NT$${N(s.dca.amt)}</span>
+              <span style="color:#f5c842;font-weight:800">= NT$${N(dcaTotal(s))}/月</span>
+            </div>
+          </div>
+        </div>` : ''}
+
+      <div style="margin-top:12px">
+        <div class="lbl" style="margin-bottom:8px">更新市價</div>
+        <div style="display:flex;gap:8px">
+          <input id="newprice" type="number" class="inp" style="margin:0;flex:1" placeholder="輸入新價格" value="${s.p}"/>
+          <button class="btn btnp" onclick="updatePrice(${s.id})">更新</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderTxForm(s) {
+  const {txType} = S();
+  const tot = () => {
+    const q = parseFloat(document.getElementById('txq')?.value)||0;
+    const p = parseFloat(document.getElementById('txp')?.value)||0;
+    return q*p;
+  };
+  return `
+    <div class="card" style="margin-bottom:12px">
+      <div class="ttype">
+        <button class="tt" onclick="setTxType('buy')" style="background:${txType==='buy'?'rgba(0,229,160,.15)':'#0a1525'};color:${txType==='buy'?'#00e5a0':'#7a8fa6'};outline:${txType==='buy'?'1.5px solid #00e5a0':'1px solid #1e3050'}">📈 買入</button>
+        <button class="tt" onclick="setTxType('sell')" style="background:${txType==='sell'?'rgba(255,94,94,.15)':'#0a1525'};color:${txType==='sell'?'#ff5e5e':'#7a8fa6'};outline:${txType==='sell'?'1.5px solid #ff5e5e':'1px solid #1e3050'}">📉 賣出</button>
+      </div>
+      <div class="lbl">股數</div>
+      <input id="txq" type="number" class="inp" placeholder="例如：100"/>
+      <div class="lbl">價格 (${s.c})</div>
+      <input id="txp" type="number" class="inp" value="${s.p}"/>
+      <div class="lbl">日期</div>
+      <input id="txd" type="date" class="inp" value="${new Date().toISOString().slice(0,10)}"/>
+      <div style="display:flex;gap:8px;margin-top:4px">
+        <button class="btn btns" style="flex:1" onclick="toggleTx()">取消</button>
+        <button class="btn btnp" style="flex:2" onclick="confirmTx(${s.id})">確認${txType==='buy'?'買入':'賣出'}</button>
+      </div>
+    </div>`;
+}
+
+// ── actions ────────────────────────────────────────────────────────────────
+window.setTab = t => { state.tab=t; render(); };
+window.openDetail = id => { state.view='detail'; state.selId=id; state.showTx=false; render(); };
+window.goBack = () => { state.view='list'; state.selId=null; render(); };
+window.toggleTx = () => { state.showTx=!state.showTx; render(); };
+window.setTxType = t => { state.txType=t; render(); };
+
+window.updatePrice = id => {
+  const v = parseFloat(document.getElementById('newprice').value);
+  if(!v||isNaN(v)) return;
+  const s = stocks.find(s=>s.id===id);
+  s.p = v;
+  s._hist = [...(s._hist||[]).slice(0,-1), v];
+  save(); render();
+};
+
+window.confirmTx = id => {
+  const q = parseFloat(document.getElementById('txq').value);
+  const p = parseFloat(document.getElementById('txp').value);
+  const dt = document.getElementById('txd').value;
+  if(!q||!p) return alert('請填入股數和價格');
+  const s = stocks.find(s=>s.id===id);
+  if(!s.tx) s.tx=[];
+  s.tx.push({type:state.txType, q, p, dt});
+  state.showTx=false;
+  save(); render();
+};
+
+// init
+render();
+</script>
+</body>
+</html>
